@@ -1,0 +1,236 @@
+\documentclass{beamer}
+\beamertemplatenavigationsymbolsempty
+\usecolortheme{beaver}
+
+% Настройка блоков
+\setbeamertemplate{blocks}[rounded][shadow=false]
+\setbeamertemplate{footline}[page number]
+\setbeamertemplate{theorems}[numbered]
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usepackage{booktabs}
+
+% Команды для обозначений
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\RMSNorm}{\mathrm{RMSNorm}}
+\newcommand{\TB}{\mathrm{TB}}
+\newcommand{\MSA}{\mathrm{MSA}}
+\newcommand{\FFN}{\mathrm{FFN}}
+\newcommand{\blockdiag}{\mathrm{blockdiag}}
+
+% Переменные из статьи
+\newcommand{\rU}{r_{U}}
+\newcommand{\rin}{r_{\mathrm{in}}}
+\newcommand{\rout}{r_{\mathrm{out}}}
+\newcommand{\gmax}{\gamma_{\max}}
+
+\title{Experimental Validation of Jacobian Bounds for Iterative Transformers}
+\author{
+    Gleb Karpeev \\
+    Scientific supervisor: Andrey Grabovoy, PhD \\
+    \textit{Moscow Institute of Physics and Technology}
+}
+\date{May, 2026}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+\end{frame}
+
+%----------------------
+\begin{frame}{Background}
+    Akiyoshi Tomihari and Ryo Karakida (2025) analyze Multi-Head Self-Attention (MSA) as a dynamical system using Jacobian-based analysis.
+
+    \vspace{0.5em}
+    Key findings:
+    \begin{itemize}
+        \item RMSNorm has a strong stabilizing effect on iterative attention
+        \item Prevents gradient explosion in recurrent self-attention dynamics
+        \item Introduced \textit{Iterative Self-Attention (ItrSA)}:
+    \end{itemize}
+
+    \begin{equation*}
+        \Delta Y^{(t)} = C + \MSA(Y^{(t)}), \quad
+        Y^{(t+1)} = \RMSNorm\bigl(Y^{(t)} + \nu\,\Delta Y^{(t)}\bigr)
+    \end{equation*}
+
+    \vspace{0.5em}
+    Our contribution: extend this analysis to the full Transformer block \\
+    (MSA + FFN + three RMSNorm layers, Post-Norm) and validate the
+    theoretical bounds experimentally.
+\end{frame}
+
+%----------------------
+\begin{frame}{Problem Statement}
+    Iterative Transformer block (Post-Norm) with state $Y^{(t)} \in \mathbb{R}^{S \times D}$
+    and context $C \in \mathbb{R}^{S \times D}$:
+    \begin{align*}
+        Y' &= \RMSNorm\bigl(\underbrace{Y + \MSA(Y)}_{Z_1}\bigr), \\
+        \TB(Y) &= \RMSNorm\bigl(\underbrace{Y' + \FFN(Y')}_{Z_2}\bigr), \\
+        F(Y) &= \RMSNorm\bigl(\underbrace{Y + \nu(C + \TB(Y))}_{U(Y)}\bigr).
+    \end{align*}
+
+    \vspace{0.3em}
+    Research objectives:
+    \begin{itemize}
+        \item Numerically validate the theoretical bound for $\norm{J_F(Y)}_2$
+        \item Study asymptotic behavior as $\nu \to \infty$
+        \item Confirm the stabilizing role of RMSNorm
+        \item Compare a hierarchy of tighter Jacobian bounds
+    \end{itemize}
+\end{frame}
+
+%----------------------
+\begin{frame}{Theoretical Foundation (Theorem 3.1)}
+    \begin{theorem}[Composed bound for the full block]
+        Suppose the row-wise lower bounds hold for all $i$:
+        \begin{itemize}
+            \item $\norm{Z_1[i,:]} = \norm{(Y + \MSA(Y))[i,:]} \ge \rin$
+            \item $\norm{Z_2[i,:]} = \norm{(Y' + \FFN(Y'))[i,:]} \ge \rout$
+            \item $\norm{U(Y)[i,:]} = \norm{(Y + \nu(C + \TB(Y)))[i,:]} \ge \rU$
+        \end{itemize}
+        Let $\gmax = \max_j |\gamma_j|$. Then
+        \begin{equation*}
+            \norm{J_F(Y)}_2 \le
+            \frac{\gmax}{\rU}
+            \left(
+                1 +
+                \nu \,\frac{\gmax^2}{\rout\,\rin}
+                \bigl(1 + \norm{J_{\FFN}}\bigr)\bigl(1 + \norm{J_{\MSA}}\bigr)
+            \right).
+        \end{equation*}
+    \end{theorem}
+
+    \begin{block}{Asymptotics (Theorem 3.2)}
+        Under non-degeneracy $\min_i\norm{\Delta Y_{[i,:]}}_2 \ge \varepsilon > 0$:
+        $\norm{J_F(Y)}_2 = O(1)$ as $\nu \to \infty$.
+    \end{block}
+\end{frame}
+
+%----------------------
+\begin{frame}{Experimental Methodology}
+    Numerical estimation of the spectral norm:
+    \begin{itemize}
+        \item Power iteration with JVP (Jacobian--vector products)
+        \item 20--50 iterations for convergence
+        \item Automatic differentiation (PyTorch)
+    \end{itemize}
+
+    \vspace{0.5em}
+    Data:
+    \begin{itemize}
+        \item Synthetic: $Y^{(0)}, C \sim \mathcal{N}(0, \sigma^2 I)$
+        \item CIFAR-10: image patches as context
+    \end{itemize}
+
+    \vspace{0.5em}
+    Model configurations:
+    \begin{itemize}
+        \item Exp.\ 1: $S=32$, $D=64$, $H=4$, $D_{ff}=128$, $\nu \in [0.1, 2.0]$
+        \item Exp.\ 2: $S=16$, $D=32$, $H=4$, $D_{ff}=64$, $\nu \in [0.1, 100]$
+    \end{itemize}
+\end{frame}
+
+%----------------------
+\begin{frame}{Experiment 1: Validation of the Theoretical Bound}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.8\linewidth]{plots/fig1_bounds_validation.png}
+    \end{figure}
+
+    \vspace{-0.5em}
+    Results:
+    \begin{itemize}
+        \item Empirical norm $\norm{J_F}_2$ stays consistently below the bound
+        \item Bound tracks the growth pattern in $\nu$ correctly
+        \item Tightness factor: $\approx 2\times$ for $\nu \le 2.0$
+    \end{itemize}
+\end{frame}
+
+%----------------------
+\begin{frame}{Hierarchy of Jacobian Bounds}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.78\linewidth]{plots/fig4_tighter_bounds.png}
+    \end{figure}
+
+    \vspace{-0.4em}
+    Curves on the plot (from loosest to tightest):
+    \begin{itemize}\small
+        \item \textbf{Original component bound} (Thm.\ 3.1): \\
+              $\tfrac{\gmax}{\rU}\bigl(1 + \nu\tfrac{\gmax^2}{\rout\rin}(1+\norm{J_{\FFN}})(1+\norm{J_{\MSA}})\bigr)$
+        \item \textbf{Residual-component bound}: replaces $(1+\norm{J})$ with $\norm{I + J}$ for MSA and FFN
+        \item \textbf{TB-norm bound}: $\tfrac{\gmax}{\rU}\bigl(1 + \nu\norm{J_{\TB}(Y)}_2\bigr)$ --- avoids splitting MSA$\times$FFN
+        \item \textbf{Preactivation bound}: $\tfrac{\gmax}{\rU}\,\norm{I + \nu J_{\TB}(Y)}_2$ --- collapses outer RMSNorm to a scalar factor
+    \end{itemize}
+\end{frame}
+
+%----------------------
+\begin{frame}{Experiment 2: Asymptotic Behavior}
+    \begin{figure}
+        \centering
+        \includegraphics[width=0.75\linewidth]{plots/fig2_asymptotic.png}
+    \end{figure}
+
+    \vspace{-0.3em}
+    Key observations:
+    \begin{itemize}
+        \item Sub-linear growth for $\nu \le 1$
+        \item Plateau reached at $\nu \approx 10$
+        \item Stabilization at $\norm{J_F}_2 \approx 3.7$ over four decades of $\nu$
+    \end{itemize}
+\end{frame}
+
+%----------------------
+\begin{frame}{Compensation Mechanism}
+    \textbf{Theoretical explanation of $O(1)$ stability:}
+
+    \vspace{0.5em}
+    As $\nu \to \infty$, the preactivation $U(Y) = Y + \nu(C + \TB(Y))$ is dominated by $\nu\,\Delta Y$:
+    \begin{align*}
+        \rU &= \min_i \norm{U[i,:]} \sim \nu \cdot \varepsilon \\[0.3em]
+        \norm{J_{\RMSNorm}(U)}_2 &\le \frac{\gmax}{\rU} \sim \frac{1}{\nu}
+    \end{align*}
+
+    \vspace{0.3em}
+    \begin{block}{Compensation}
+        The inner block Jacobian contributes an $O(\nu)$ factor (chain rule),
+        while the outer RMSNorm contributes $O(1/\nu)$.
+
+        \vspace{0.3em}
+        \textbf{Result:} $\norm{J_F}_2 \sim \tfrac{2\gmax}{\varepsilon} = O(1)$ --- independent of $\nu$.
+    \end{block}
+\end{frame}
+
+%----------------------
+\begin{frame}{Conclusions}
+    Main results:
+
+    \begin{enumerate}
+        \item \textbf{Theory validation:} empirical norms lie within a factor
+              of $1.5$--$2.5$ from the Thm.\ 3.1 bound.
+
+        \item \textbf{Asymptotic stability:} compensation $\gmax/\rU \sim 1/\nu$
+              cancels the $O(\nu)$ growth $\Rightarrow$ $\norm{J_F}_2 = O(1)$.
+
+        \item \textbf{Bound hierarchy:} preactivation and TB-norm refinements
+              reduce the gap to empirical from $\sim 2\times$ to almost $1\times$.
+
+        \item \textbf{Role of RMSNorm:} prevents exponential Jacobian growth
+              even for large $\nu$.
+
+        \item \textbf{Robustness:} confirmed on synthetic data and CIFAR-10
+              across various architectural configurations.
+    \end{enumerate}
+
+    \vspace{0.3em}
+    \begin{block}{Practical significance}
+        Iterative Transformers with RMSNorm provide controlled dynamics across
+        many iterations --- crucial for reasoning and looped architectures.
+    \end{block}
+\end{frame}
+
+\end{document}
